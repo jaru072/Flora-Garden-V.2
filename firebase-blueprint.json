@@ -1,0 +1,163 @@
+{
+  "entities": {
+    "Employee": {
+      "title": "Employee",
+      "description": "รายชื่อบุคลากรและพนักงาน",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "department": { "type": "string" },
+        "phone": { "type": "string" }
+      },
+      "required": ["id", "name", "role", "department"]
+    },
+    "Equipment": {
+      "title": "Equipment",
+      "description": "คลังอุปกรณ์เครื่องมือเกษตรกรรม",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "status": { "type": "string" },
+        "total": { "type": "number" },
+        "available": { "type": "number" }
+      },
+      "required": ["id", "code", "name", "category"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "ประวัติการเบิก-คืน-ยืมอุปกรณ์",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" },
+        "employeeName": { "type": "string" },
+        "equipmentName": { "type": "string" },
+        "amount": { "type": "number" },
+        "timestamp": { "type": "string" }
+      }
+    },
+    "Attendance": {
+      "title": "Attendance",
+      "description": "ประวัติการลงเวลาเข้างาน/เลิกงาน/แจ้งลา",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "employeeId": { "type": "string" },
+        "employeeName": { "type": "string" },
+        "status": { "type": "string" },
+        "time": { "type": "string" },
+        "date": { "type": "string" }
+      }
+    },
+    "User": {
+      "title": "User",
+      "description": "ข้อมูลผู้ใช้งานระบบและบทบาท (Admin, Manager, Worker)",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "หมวดหมู่อุปกรณ์การเกษตร พร้อมรหัสมาตรฐาน (CAT-xxx)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "prefix": { "type": "string" },
+        "icon": { "type": "string" },
+        "label": { "type": "string" }
+      },
+      "required": ["id", "code", "name"]
+    },
+    "Department": {
+      "title": "Department",
+      "description": "แผนกและฝ่ายงาน พร้อมรหัสมาตรฐาน (DEP-xxx)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" }
+      },
+      "required": ["id", "code", "name"]
+    },
+    "Location": {
+      "title": "Location",
+      "description": "สถานที่จัดเก็บอุปกรณ์ พร้อมรหัสมาตรฐาน (LOC-xxx)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" }
+      },
+      "required": ["id", "code", "name"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "ประวัติการเพิ่ม แก้ไข ลบ บุคลากร อุปกรณ์ หมวดหมู่ และแผนก",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "rawTimestamp": { "type": "number" },
+        "userEmail": { "type": "string" },
+        "userName": { "type": "string" },
+        "module": { "type": "string" },
+        "action": { "type": "string" },
+        "details": { "type": "string" },
+        "recordId": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "userEmail", "module", "action", "details"]
+    }
+  },
+  "firestore": {
+    "/employees/{employeeId}": {
+      "schema": { "$ref": "#/entities/Employee" },
+      "description": "คอลเลกชันรายชื่อพนักงาน"
+    },
+    "/equipment/{equipmentId}": {
+      "schema": { "$ref": "#/entities/Equipment" },
+      "description": "คอลเลกชันอุปกรณ์เกษตร"
+    },
+    "/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "คอลเลกชันประวัติเบิกคืน"
+    },
+    "/attendance/{attendanceId}": {
+      "schema": { "$ref": "#/entities/Attendance" },
+      "description": "คอลเลกชันลงเวลาเข้างาน"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "คอลเลกชันผู้ใช้งานและสิทธิ์ระบบ"
+    },
+    "/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/Category" },
+      "description": "คอลเลกชันหมวดหมู่อุปกรณ์"
+    },
+    "/departments/{departmentId}": {
+      "schema": { "$ref": "#/entities/Department" },
+      "description": "คอลเลกชันแผนกและฝ่ายงาน (DEP-xxx)"
+    },
+    "/locations/{locationId}": {
+      "schema": { "$ref": "#/entities/Location" },
+      "description": "คอลเลกชันสถานที่จัดเก็บอุปกรณ์ (LOC-xxx)"
+    },
+    "/audit_logs/{auditLogId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "คอลเลกชันประวัติการเพิ่ม แก้ไข ลบ ข้อมูลในระบบ"
+    }
+  }
+}

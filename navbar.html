@@ -1,0 +1,27 @@
+<nav class="navbar navbar-expand-lg navbar-dark navbar-flora sticky-top">
+  <div class="container-fluid px-3 px-md-4">
+    <a class="navbar-brand d-flex align-items-center gap-2 fw-bold" href="#">
+      <i class="bi bi-flower1 fs-3 text-warning"></i>
+      <div>
+        <div class="lh-1 fs-5 blink-text">ทดสอบ โครงการทุ่งสวรรค์ ตะวันฉาย</div>
+        <small class="text-white-50 fw-normal fs-8">ระบบพนักงาน สต๊อกอุปกรณ์ Flora Garden</small>
+      </div>
+    </a>
+
+    <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+      <!-- User Profile & Firebase Auth Button -->
+      <button class="btn btn-outline-light btn-sm rounded-pill px-3 fw-semibold d-flex align-items-center gap-2 shadow-sm" data-bs-toggle="modal" data-bs-target="#userAuthModal" id="userAuthNavBtn">
+        <img id="navUserAvatar" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" class="rounded-circle d-none" style="width: 22px; height: 22px; object-fit: cover;" />
+        <i id="currentRoleIcon" class="bi bi-person-badge text-warning"></i>
+        <span id="currentRoleText" class="d-none d-sm-inline">สิทธิ์: พนักงาน (Worker)</span>
+        <i class="bi bi-chevron-down ms-1 fs-8"></i>
+      </button>
+
+      <!-- Logout Button (Top Right Corner) -->
+      <button type="button" class="btn btn-danger btn-sm rounded-pill px-3 fw-semibold d-flex align-items-center gap-1.5 shadow-sm" onclick="handleSignOut()" id="topNavLogoutBtn" title="ออกจากระบบเพื่อเลือกบัญชีอีเมลใหม่">
+        <i class="bi bi-box-arrow-right fs-7"></i>
+        <span>ออกจากระบบ</span>
+      </button>
+    </div>
+  </div>
+</nav>

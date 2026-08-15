@@ -1,0 +1,10 @@
+{
+  "name": "Flora Garden V.2",
+  "description": "Web App Flora Garden Test for Programer",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
