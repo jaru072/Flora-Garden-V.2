@@ -146,7 +146,8 @@
       
       try {
         const fsSettings = {
-          experimentalAutoDetectLongPolling: true
+          experimentalForceLongPolling: true,
+          experimentalAutoDetectLongPolling: false
         };
         const customDbId = (firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== "(default)")
           ? firebaseConfig.firestoreDatabaseId
@@ -170,7 +171,12 @@
       try {
         auth = getAuth(app);
         googleProvider = new GoogleAuthProvider();
+        googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
         googleProvider.setCustomParameters({ prompt: 'select_account' });
+        window.GoogleAuthProvider = GoogleAuthProvider;
+        window.signInWithPopup = signInWithPopup;
+        window.getAuth = getAuth;
+        window.googleProvider = googleProvider;
       } catch (eAuth) {
         console.warn("Auth init warning:", eAuth);
       }
@@ -212,6 +218,15 @@
           if (typeof window.hideMandatoryLoginScreen === 'function') {
             window.hideMandatoryLoginScreen();
           }
+
+          // Trigger automatic daily hybrid backup for Admin
+          if (user.email === 'jaru072@gmail.com' || currentRole === 'ADMIN') {
+            setTimeout(() => {
+              if (typeof window.runHybridDailyBackup === 'function') {
+                window.runHybridDailyBackup(false).catch(e => console.warn("[AutoBackup]", e));
+              }
+            }, 3500);
+          }
         } else {
           console.log("Firebase Auth User initialized without active session. Defaulting to Admin Thamma Srithong.");
           if (lastKnownUserForLogout) {
@@ -232,6 +247,13 @@
           if (typeof window.hideMandatoryLoginScreen === 'function') {
             window.hideMandatoryLoginScreen();
           }
+
+          // Trigger automatic daily hybrid backup for Admin Default
+          setTimeout(() => {
+            if (typeof window.runHybridDailyBackup === 'function') {
+              window.runHybridDailyBackup(false).catch(e => console.warn("[AutoBackup]", e));
+            }
+          }, 3500);
         }
       });
     }
@@ -353,12 +375,14 @@
         try {
           auth = getAuth();
           googleProvider = new GoogleAuthProvider();
+          googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
         } catch(e) {
           console.warn("Auth re-init failed:", e);
         }
       }
 
       if (googleProvider) {
+        googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
         googleProvider.setCustomParameters({ prompt: 'select_account' });
       }
 
@@ -373,6 +397,15 @@
       try {
         showToast("⏳ กำลังเปิดหน้าต่าง Google Sign-In...");
         const result = await signInWithPopup(auth, googleProvider);
+        try {
+          const credential = GoogleAuthProvider.credentialFromResult(result);
+          if (credential?.accessToken) {
+            window.googleDriveAccessToken = credential.accessToken;
+            sessionStorage.setItem('google_drive_access_token', credential.accessToken);
+          }
+        } catch (credErr) {
+          console.warn("Credential extraction notice:", credErr);
+        }
         showToast(`🟢 เข้าสู่ระบบด้วย Google Account สำเร็จ: ${result.user.displayName || result.user.email}`);
         if (typeof window.hideMandatoryLoginScreen === 'function') {
           window.hideMandatoryLoginScreen();
@@ -394,6 +427,76 @@
         }
         showToast(`🔴 ${errorTitle} (${err.code || err.message})`);
       }
+    };
+
+    // Helper to get Google Drive Access Token (cached with mutex to prevent duplicate popups)
+    let driveAuthPromise = null;
+    let lastAuthAttemptTime = 0;
+
+    window.getGoogleDriveAccessToken = async function(promptIfMissing = true, forceRefresh = false) {
+      if (driveAuthPromise) {
+        return await driveAuthPromise;
+      }
+
+      const now = Date.now();
+      if (!forceRefresh) {
+        if (window.googleDriveAccessToken) {
+          return window.googleDriveAccessToken;
+        }
+        const stored = localStorage.getItem('google_drive_access_token') || sessionStorage.getItem('google_drive_access_token');
+        const expiresAt = parseInt(localStorage.getItem('google_drive_token_expires') || '0', 10);
+        if (stored && (expiresAt === 0 || expiresAt > now + 60000)) {
+          window.googleDriveAccessToken = stored;
+          return stored;
+        }
+      } else {
+        window.googleDriveAccessToken = null;
+        localStorage.removeItem('google_drive_access_token');
+        localStorage.removeItem('google_drive_token_expires');
+        sessionStorage.removeItem('google_drive_access_token');
+      }
+
+      if (!promptIfMissing) return null;
+
+      // Prevent spamming popup within 2 seconds
+      if (now - lastAuthAttemptTime < 2000 && !forceRefresh) {
+        if (window.googleDriveAccessToken) return window.googleDriveAccessToken;
+      }
+      lastAuthAttemptTime = now;
+
+      driveAuthPromise = (async () => {
+        try {
+          if (!auth) auth = getAuth();
+          if (!googleProvider) {
+            googleProvider = new GoogleAuthProvider();
+          }
+          googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
+          googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+          const result = await signInWithPopup(auth, googleProvider);
+          const credential = GoogleAuthProvider.credentialFromResult(result);
+          if (credential?.accessToken) {
+            window.googleDriveAccessToken = credential.accessToken;
+            localStorage.setItem('google_drive_access_token', credential.accessToken);
+            localStorage.setItem('google_drive_token_expires', String(Date.now() + 3500 * 1000));
+            sessionStorage.setItem('google_drive_access_token', credential.accessToken);
+            return credential.accessToken;
+          }
+          throw new Error("ไม่ได้รับสิทธิ์หรือ Access Token จาก Google Drive กรุณาลองใหม่อีกครั้ง");
+        } catch (popupErr) {
+          console.error("Google Drive Token Popup Error:", popupErr);
+          if (popupErr.code === 'auth/popup-closed-by-user') {
+            throw new Error("ยกเลิกการเข้าสู่ระบบ Google Drive (หน้าต่าง Popup ถูกปิด)");
+          } else if (popupErr.code === 'auth/unauthorized-domain') {
+            throw new Error(`โดเมนนี้ยังไม่ได้รับอนุญาตใน Firebase Authentication (${window.location.hostname})`);
+          }
+          throw popupErr;
+        } finally {
+          driveAuthPromise = null;
+        }
+      })();
+
+      return await driveAuthPromise;
     };
 
     // Email Login
@@ -1252,14 +1355,47 @@
       ];
     }
 
-    // LocalStorage Helper Functions - Disabled database entity caching to ensure Cloud Firestore is single source of truth
+    // LocalStorage Helper Functions - Multi-tiered caching for instant 0ms app start
     function saveToLocalStorage() {
       try {
-        localStorage.removeItem('flora_employees');
-        localStorage.removeItem('flora_equipment');
-        localStorage.removeItem('flora_transactions');
-        localStorage.removeItem('flora_attendance');
-        localStorage.removeItem('flora_categories');
+        if (Array.isArray(employeeList) && employeeList.length > 0) {
+          try {
+            localStorage.setItem('flora_employees', JSON.stringify(employeeList));
+          } catch(eQuota) {
+            // If quota exceeded due to heavy base64, save sanitized version
+            const sanitized = employeeList.map(emp => ({
+              ...emp,
+              photoUrl: (emp.photoUrl && emp.photoUrl.length > 2000) ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80' : emp.photoUrl
+            }));
+            try { localStorage.setItem('flora_employees', JSON.stringify(sanitized)); } catch(e){}
+          }
+        }
+        if (Array.isArray(equipmentList) && equipmentList.length > 0) {
+          try {
+            localStorage.setItem('flora_equipment', JSON.stringify(equipmentList));
+          } catch(eQuota) {
+            const sanitized = equipmentList.map(eq => ({
+              ...eq,
+              imageUrl: (eq.imageUrl && eq.imageUrl.length > 2000) ? DEFAULT_EQUIPMENT_IMAGE : eq.imageUrl
+            }));
+            try { localStorage.setItem('flora_equipment', JSON.stringify(sanitized)); } catch(e){}
+          }
+        }
+        if (Array.isArray(transactionHistory) && transactionHistory.length > 0) {
+          try {
+            localStorage.setItem('flora_transactions', JSON.stringify(transactionHistory));
+          } catch(e){}
+        }
+        if (Array.isArray(attendanceLogs) && attendanceLogs.length > 0) {
+          try {
+            localStorage.setItem('flora_attendance', JSON.stringify(attendanceLogs));
+          } catch(e){}
+        }
+        if (Array.isArray(categoriesList) && categoriesList.length > 0) {
+          try {
+            localStorage.setItem('flora_categories', JSON.stringify(categoriesList));
+          } catch(e){}
+        }
         if (departmentsList && Array.isArray(departmentsList) && departmentsList.length > 0) {
           localStorage.setItem('flora_departments', JSON.stringify(departmentsList));
         }
@@ -1267,18 +1403,57 @@
           localStorage.setItem('flora_locations', JSON.stringify(locationsList));
         }
       } catch (e) {
-        console.warn("LocalStorage cleanup notice:", e);
+        console.warn("LocalStorage save notice:", e);
       }
     }
 
     function loadFromLocalStorage() {
       try {
-        saveToLocalStorage();
-        employeeList = [];
-        equipmentList = [];
-        transactionHistory = [];
-        attendanceLogs = [];
-        categoriesList = [...defaultCategoriesList];
+        const savedEquip = localStorage.getItem('flora_equipment');
+        if (savedEquip) {
+          try {
+            const parsed = JSON.parse(savedEquip);
+            if (Array.isArray(parsed) && parsed.length > 0) equipmentList = parsed;
+          } catch(e){}
+        }
+
+        const savedEmps = localStorage.getItem('flora_employees');
+        if (savedEmps) {
+          try {
+            const parsed = JSON.parse(savedEmps);
+            if (Array.isArray(parsed) && parsed.length > 0) employeeList = parsed;
+          } catch(e){}
+        }
+
+        const savedTx = localStorage.getItem('flora_transactions');
+        if (savedTx) {
+          try {
+            const parsed = JSON.parse(savedTx);
+            if (Array.isArray(parsed) && parsed.length > 0) transactionHistory = parsed;
+          } catch(e){}
+        }
+
+        const savedAtt = localStorage.getItem('flora_attendance');
+        if (savedAtt) {
+          try {
+            const parsed = JSON.parse(savedAtt);
+            if (Array.isArray(parsed) && parsed.length > 0) attendanceLogs = parsed;
+          } catch(e){}
+        }
+
+        const savedCats = localStorage.getItem('flora_categories');
+        if (savedCats) {
+          try {
+            const parsed = JSON.parse(savedCats);
+            if (Array.isArray(parsed) && parsed.length > 0) categoriesList = parsed;
+            else categoriesList = [...defaultCategoriesList];
+          } catch(e) {
+            categoriesList = [...defaultCategoriesList];
+          }
+        } else {
+          categoriesList = [...defaultCategoriesList];
+        }
+
         const savedDepts = localStorage.getItem('flora_departments');
         if (savedDepts) {
           try {
@@ -1363,7 +1538,13 @@
       }
       if (typeof toggleTransTypeUI === 'function') toggleTransTypeUI();
 
-      if (isFirebaseReady) setupFirestoreListeners();
+      if (isFirebaseReady) {
+        setupFirestoreListeners();
+      } else {
+        setTimeout(() => {
+          if (isFirebaseReady) setupFirestoreListeners();
+        }, 500);
+      }
       setupEventListeners();
     }
 
@@ -2322,13 +2503,13 @@
 
         if (item.status === 'VALID') {
           badgeHtml = `<span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-2 py-1"><i class="bi bi-check-circle-fill me-1"></i>สมบูรณ์ (Storage)</span>`;
-          thumbHtml = `<img src="${item.imageUrl}" class="rounded-3 border style-object-cover" style="width: 44px; height: 44px;" onerror="this.src='https://via.placeholder.com/44?text=ERR'" />`;
+          thumbHtml = `<img src="${item.imageUrl}" loading="lazy" class="rounded-3 border style-object-cover" style="width: 44px; height: 44px;" onerror="this.src='https://via.placeholder.com/44?text=ERR'" />`;
         } else if (item.status === 'BROKEN') {
           badgeHtml = `<span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 rounded-pill px-2 py-1"><i class="bi bi-exclamation-triangle-fill me-1"></i>ลิงก์เสีย / ไม่พบไฟล์</span>`;
           thumbHtml = `<div class="bg-danger bg-opacity-10 text-danger rounded-3 d-flex align-items-center justify-content-center border border-danger border-opacity-25" style="width: 44px; height: 44px;"><i class="bi bi-image-fill fs-5"></i></div>`;
         } else if (item.status === 'BASE64') {
           badgeHtml = `<span class="badge bg-warning bg-opacity-10 text-dark border border-warning border-opacity-25 rounded-pill px-2 py-1"><i class="bi bi-file-earmark-code me-1"></i>Base64 (ยังไม่ได้ซิงก์)</span>`;
-          thumbHtml = `<img src="${item.imageUrl}" class="rounded-3 border style-object-cover" style="width: 44px; height: 44px;" />`;
+          thumbHtml = `<img src="${item.imageUrl}" loading="lazy" class="rounded-3 border style-object-cover" style="width: 44px; height: 44px;" />`;
         } else {
           badgeHtml = `<span class="badge bg-secondary bg-opacity-10 text-secondary border rounded-pill px-2 py-1"><i class="bi bi-dash-circle me-1"></i>ไม่มีรูปภาพ</span>`;
           thumbHtml = `<div class="bg-light text-secondary rounded-3 d-flex align-items-center justify-content-center border" style="width: 44px; height: 44px;"><i class="bi bi-card-image fs-5"></i></div>`;
@@ -4534,7 +4715,7 @@
                   <input type="checkbox" class="form-check-input emp-select-checkbox cursor-pointer" value="${emp.id}" ${isChecked ? 'checked' : ''} onchange="toggleEmployeeSelection('${emp.id}', this.checked)">
                 </td>
                 <td>
-                  <img src="${emp.photoUrl}" class="avatar-circle border" style="width: 38px; height: 38px; object-fit: cover;" alt="${typeof escapeHtml === 'function' ? escapeHtml(emp.name || '') : (emp.name || '')}" onerror="this.src='https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80'" />
+                  <img src="${emp.photoUrl}" loading="lazy" class="avatar-circle border" style="width: 38px; height: 38px; object-fit: cover;" alt="${typeof escapeHtml === 'function' ? escapeHtml(emp.name || '') : (emp.name || '')}" onerror="this.src='https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80'" />
                 </td>
                 <td>
                   <span class="badge bg-dark font-monospace px-2 py-1 fs-8">${typeof escapeHtml === 'function' ? escapeHtml(empCodeDisplay) : empCodeDisplay}</span>
@@ -4598,7 +4779,7 @@
                     <input type="checkbox" class="form-check-input cursor-pointer" value="${emp.id}" ${isChecked ? 'checked' : ''} onchange="toggleEmployeeSelection('${emp.id}', this.checked)" title="เลือกบุคลากร">
                   </div>
                   <div class="d-flex align-items-center gap-3 ms-4">
-                    <img src="${emp.photoUrl}" class="avatar-circle border" alt="${typeof escapeHtml === 'function' ? escapeHtml(emp.name || '') : (emp.name || '')}" onerror="this.src='https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80'" />
+                    <img src="${emp.photoUrl}" loading="lazy" class="avatar-circle border" alt="${typeof escapeHtml === 'function' ? escapeHtml(emp.name || '') : (emp.name || '')}" onerror="this.src='https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80'" />
                     <div>
                       <div class="fw-bold text-dark mb-1 fs-6">${typeof escapeHtml === 'function' ? escapeHtml(displayName) : displayName}</div>
                       <div class="fs-7 text-success fw-bold mb-1"><i class="bi bi-building me-1"></i>[${typeof escapeHtml === 'function' ? escapeHtml(empCodeDisplay) : empCodeDisplay}] ${typeof escapeHtml === 'function' ? escapeHtml(deptName) : deptName}</div>
@@ -5197,7 +5378,7 @@
             </td>
             <td class="ps-2" style="width: 70px;">
               <div class="position-relative ${isStaff ? 'cursor-pointer' : ''} d-inline-block" ${isStaff ? `onclick="openEquipmentPopupMenu('${item.id}')" title="คลิกรูปภาพเพื่อเปิดเมนู (Popup Menu)"` : ''}>
-                <img src="${item.imageUrl}" style="width: 48px; height: 48px; object-fit: cover; border-radius: 8px;" onerror="this.src='${DEFAULT_EQUIPMENT_IMAGE}'" />
+                <img src="${item.imageUrl}" loading="lazy" style="width: 48px; height: 48px; object-fit: cover; border-radius: 8px;" onerror="this.src='${DEFAULT_EQUIPMENT_IMAGE}'" />
                 ${isStaff ? `
                   <span class="position-absolute bottom-0 end-0 bg-dark text-white rounded-circle p-1 d-flex align-items-center justify-content-center shadow-sm" style="width: 18px; height: 18px; font-size: 10px;">
                     <i class="bi bi-three-dots"></i>
@@ -9929,7 +10110,7 @@
             <td>${typeBadge}</td>
             <td>
               <div class="d-flex align-items-center gap-2">
-                <img src="${empAvatar}" class="rounded-circle border shadow-2xs" style="width: 28px; height: 28px; object-fit: cover;" onerror="this.src='https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80'" />
+                <img src="${empAvatar}" loading="lazy" class="rounded-circle border shadow-2xs" style="width: 28px; height: 28px; object-fit: cover;" onerror="this.src='https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80'" />
                 <div>
                   <div class="fw-semibold text-dark fs-8 text-truncate" style="max-width: 170px;">${escapeHtml(empName)}</div>
                   <span class="badge bg-light text-secondary border fs-9 py-0.5">${escapeHtml(empDept)}</span>
@@ -10118,7 +10299,7 @@
               <tr class="${isOverdue ? 'overdue-pulse-row' : ''}">
                 <td>
                   <div class="d-flex align-items-center gap-2">
-                    <img src="${empAvatar}" class="rounded-circle border shadow-sm" style="width: 32px; height: 32px; object-fit: cover;" />
+                    <img src="${empAvatar}" loading="lazy" class="rounded-circle border shadow-sm" style="width: 32px; height: 32px; object-fit: cover;" />
                     <div>
                       <div class="fw-bold text-dark">${b.employeeName}</div>
                       ${b.empObj && b.empObj.employeeCode ? `<span class="badge bg-dark font-monospace fs-8">${b.empObj.employeeCode}</span>` : ''}
@@ -12884,6 +13065,32 @@
       }
     };
 
+    // Helper to get friendly Project and Database info for safety displays
+    window.getFriendlyProjectAndDbInfo = function() {
+      const cfg = (typeof firebaseConfig !== 'undefined' ? firebaseConfig : (window.firebaseConfig || {}));
+      const projId = cfg.projectId || 'flora-gaden';
+      const dbId = cfg.firestoreDatabaseId || '(default)';
+      
+      let friendlyName = 'Flora Garden System';
+      const dbLower = (dbId || '').toLowerCase();
+      if (dbLower.includes('floragardentest')) {
+        friendlyName = 'Flora Garden Test';
+      } else if (dbLower.includes('floragardenv2')) {
+        friendlyName = 'Flora Garden V.2';
+      } else if (dbLower.includes('floragardennew')) {
+        friendlyName = 'Flora Garden New';
+      } else if (dbId === '(default)' || !dbId) {
+        friendlyName = 'Flora Garden (Default)';
+      } else {
+        friendlyName = `Flora Garden (${projId})`;
+      }
+      return {
+        projectName: friendlyName,
+        projectId: projId,
+        databaseId: dbId
+      };
+    };
+
     // Function to show the custom confirmation modal for database purge (PRESERVING Firebase Storage images)
     window.purgeEntireDatabaseAndStorage = function() {
       const modalEl = document.getElementById('confirmPurgeDbModal');
@@ -12896,12 +13103,28 @@
         btn.innerHTML = '<i class="bi bi-trash3-fill me-1.5"></i> ยืนยันลบฐานข้อมูลทันที';
       }
 
+      // Populate dynamic Database ID and Project Name in the confirmation modal
+      const info = window.getFriendlyProjectAndDbInfo();
+      const projNameEl = document.getElementById('purgeTargetProjectName');
+      const dbIdEl = document.getElementById('purgeTargetDbId');
+      const projBadgeEl = document.getElementById('purgeTargetProjectIdBadge');
+
+      if (projNameEl) {
+        projNameEl.innerHTML = `<i class="bi bi-folder2-open text-danger me-1"></i> <span>${info.projectName}</span>`;
+      }
+      if (dbIdEl) {
+        dbIdEl.textContent = info.databaseId;
+      }
+      if (projBadgeEl) {
+        projBadgeEl.textContent = `Project: ${info.projectId}`;
+      }
+
       if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
         const modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
         modal.show();
       } else {
-        // Fallback confirmation
-        const c1 = confirm("⚠️ คำเตือน: คุณแน่ใจหรือไม่ว่าต้องการ 'ลบฐานข้อมูลทั้งหมด' ?\n\n*หมายเหตุ: จะไม่ลบไฟล์รูปภาพใน Firebase Storage (รูปภาพจะยังคงอยู่ใน Storage ปลอดภัย)*");
+        // Fallback confirmation with project and database ID details
+        const c1 = confirm(`⚠️ คำเตือน: คุณแน่ใจหรือไม่ว่าต้องการ 'ลบฐานข้อมูลทั้งหมด' ?\n\n📌 โปรเจ็กต์: ${info.projectName}\n📌 Database ID: ${info.databaseId}\n📌 Firebase Project: ${info.projectId}\n\n*หมายเหตุ: จะไม่ลบไฟล์รูปภาพใน Firebase Storage (รูปภาพจะยังคงอยู่ใน Storage ปลอดภัย)*`);
         if (c1) {
           window.executeConfirmedPurgeDatabase();
         }
@@ -13402,12 +13625,14 @@
     let currentDbCollection = 'equipment';
 
     window.canAccessDatabaseEditor = function() {
-      const isRoleAdmin = (typeof currentRole !== 'undefined' && currentRole === 'ADMIN');
+      if (typeof window.isThammaSrithongAdminStrict === 'function') {
+        return window.isThammaSrithongAdminStrict();
+      }
       const email = ((typeof currentAuthUser !== 'undefined' && currentAuthUser?.email) || (typeof currentUserProfile !== 'undefined' && currentUserProfile?.email) || '').trim().toLowerCase();
-      
-      if (isRoleAdmin) return true;
-      if (email === 'jaru072@gmail.com') return true;
-      return false;
+      const displayName = ((typeof currentAuthUser !== 'undefined' && currentAuthUser?.displayName) || (typeof currentUserProfile !== 'undefined' && currentUserProfile?.displayName) || '').trim().toLowerCase();
+      const isEmailMatch = email === 'jaru072@gmail.com';
+      const isNameMatch = displayName.includes('thamma') || displayName.includes('srithong') || displayName.includes('ธรรมะ') || displayName.includes('ศรีทอง');
+      return isEmailMatch || (isNameMatch && (typeof currentRole !== 'undefined' && currentRole === 'ADMIN'));
     };
 
     window.updateDbEditorMenuVisibility = function() {
@@ -13558,7 +13783,7 @@
           rowsHtml += `
             <tr>
               <td class="ps-3 font-monospace fw-bold"><span class="badge bg-dark">${eq.code || eq.id}</span></td>
-              <td><img src="${eq.imageUrl || 'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=100&auto=format&fit=crop&q=80'}" class="rounded-3 border shadow-sm" style="width: 42px; height: 42px; object-fit: cover;" /></td>
+              <td><img src="${eq.imageUrl || 'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=100&auto=format&fit=crop&q=80'}" loading="lazy" class="rounded-3 border shadow-sm" style="width: 42px; height: 42px; object-fit: cover;" /></td>
               <td>
                 <div class="fw-bold text-dark">${eq.name}</div>
                 <div class="fs-8 text-muted">${eq.description || 'ไม่มีคำอธิบาย'}</div>
@@ -13608,7 +13833,7 @@
           rowsHtml += `
             <tr>
               <td class="ps-3 font-monospace fw-bold"><span class="badge bg-dark">${emp.id}</span></td>
-              <td><img src="${emp.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}" class="rounded-circle border shadow-sm" style="width: 40px; height: 40px; object-fit: cover;" /></td>
+              <td><img src="${emp.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}" loading="lazy" class="rounded-circle border shadow-sm" style="width: 40px; height: 40px; object-fit: cover;" /></td>
               <td>
                 <div class="fw-bold text-dark">${formatEmpName(emp)}</div>
                 <div class="fs-8 text-muted">${emp.email || '-'}</div>
@@ -14050,8 +14275,191 @@
       }
     }
 
+    let isInitialFetchCompleted = false;
+    let isListenersAttached = false;
+
+    async function fetchInitialFirestoreData(isRetry = false) {
+      if (!isFirebaseReady || !db) return;
+      try {
+        const [empSnap, attSnap, catSnap, eqSnap, txSnap, deptSnap, locSnap] = await Promise.allSettled([
+          getDocs(collection(db, "employees")),
+          getDocs(collection(db, "attendance")),
+          getDocs(collection(db, "categories")),
+          getDocs(collection(db, "equipment")),
+          getDocs(collection(db, "transactions")),
+          getDocs(collection(db, "departments")),
+          getDocs(collection(db, "locations"))
+        ]);
+
+        let hasData = false;
+
+        if (empSnap.status === 'fulfilled' && !empSnap.value.empty) {
+          const deptMap = {
+            "เจ้าหน้าที่สำนักงาน (Staff)": "แผนกงานธุรการ",
+            "แผนกเรือนกระจกและเพาะชำ": "แผนกงานทดลอง",
+            "แผนกตกแต่งและตัดแต่งกิ่ง": "แผนกทีมเจดีย์/แปลง G",
+            "แผนกระบบน้ำและบำรุงดิน": "แผนกทีมถนนธรรมชัย/เฟื้องฟ้า/ผสมดิน",
+            "สวนกุหลาบและไม้ดอก": "แผนกทีมกุหลาบ",
+            "สวนไม้ผลและไม้ยืนต้น": "แผนกทีมไม้ดอกหลังวิหารคดคอร์ 13-20(ปอ)",
+            "แผนกดูแลไม้ดอก (Rose & Tulip)": "แผนกทีมกุหลาบ",
+            "แผนกไม้ประดับใบ (Indoor Flora)": "แผนกงานทดลอง"
+          };
+          employeeList = empSnap.value.docs.map(d => {
+            const data = d.data();
+            let updatedDept = data.department;
+            if (deptMap[data.department]) {
+              updatedDept = deptMap[data.department];
+            }
+            return { id: d.id, ...data, department: updatedDept };
+          });
+          renderEmployeeDirectory();
+          populateEmployeeDropdowns();
+          renderStaffTable();
+          hasData = true;
+        }
+
+        if (catSnap.status === 'fulfilled' && !catSnap.value.empty) {
+          const fsCatsMap = new Map();
+          for (const d of catSnap.value.docs) {
+            const data = d.data() || {};
+            const officialCode = (data.code || data.id || d.id || '').trim();
+            const catName = (data.name || '').trim();
+            const item = { ...data, id: officialCode || d.id, code: officialCode || d.id, name: catName || officialCode };
+            const mapKey = (item.code || item.id || item.name).toLowerCase();
+            if (!fsCatsMap.has(mapKey)) {
+              fsCatsMap.set(mapKey, item);
+            }
+          }
+          const fsCats = Array.from(fsCatsMap.values());
+          fsCats.sort((a, b) => {
+            const numA = parseInt(((a.code || a.id || '').match(/^CAT-(\d+)$/i) || [0, 999999])[1], 10);
+            const numB = parseInt(((b.code || b.id || '').match(/^CAT-(\d+)$/i) || [0, 999999])[1], 10);
+            if (numA !== numB) return numA - numB;
+            return (a.name || '').localeCompare(b.name || '', 'th');
+          });
+          categoriesList = fsCats;
+          renderCategoryDropdowns();
+          renderCategoryManagementList();
+          hasData = true;
+        }
+
+        if (eqSnap.status === 'fulfilled' && !eqSnap.value.empty) {
+          const fsEquipMap = new Map();
+          for (const d of eqSnap.value.docs) {
+            const data = d.data() || {};
+            const expectedCode = (data.code || d.id || '').trim();
+            const item = { ...data, id: expectedCode || d.id, code: expectedCode || d.id };
+            if (item.minQuantity === undefined || item.minQuantity === null) {
+              item.minQuantity = 3;
+            }
+            const mapKey = (item.code || item.id).toLowerCase();
+            if (!fsEquipMap.has(mapKey)) {
+              fsEquipMap.set(mapKey, item);
+            }
+          }
+          const fsEquip = Array.from(fsEquipMap.values());
+          fsEquip.sort((a, b) => {
+            const codeA = (a.code || a.id || '').toString();
+            const codeB = (b.code || b.id || '').toString();
+            return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+          });
+          equipmentList = fsEquip;
+          renderCatalogGrid();
+          renderStaffTable();
+          populateEquipmentDropdown();
+          populateQuickScanDropdown();
+          hasData = true;
+        }
+
+        if (txSnap.status === 'fulfilled' && !txSnap.value.empty) {
+          const list = txSnap.value.docs.map(d => ({ id: d.id, ...d.data() }));
+          list.sort((a, b) => {
+            const timeA = getRecordTimestampMs(a);
+            const timeB = getRecordTimestampMs(b);
+            return timeB - timeA;
+          });
+          transactionHistory = list;
+          renderHistoryTable();
+          hasData = true;
+        }
+
+        if (attSnap.status === 'fulfilled' && !attSnap.value.empty) {
+          attendanceLogs = attSnap.value.docs.map(d => ({ id: d.id, ...d.data() }));
+          renderAttendanceTable();
+          hasData = true;
+        }
+
+        if (deptSnap.status === 'fulfilled' && !deptSnap.value.empty) {
+          const deptMap = new Map();
+          for (const dSnap of deptSnap.value.docs) {
+            const data = dSnap.data() || {};
+            const name = (data.name || dSnap.id || '').trim();
+            const officialCode = (data.code || data.id || dSnap.id || '').trim();
+            if (name) {
+              const key = name.toLowerCase();
+              if (!deptMap.has(key)) {
+                deptMap.set(key, { id: officialCode || dSnap.id, code: officialCode || dSnap.id, name });
+              }
+            }
+          }
+          const validDocs = Array.from(deptMap.values());
+          validDocs.sort((a, b) => {
+            const numA = parseInt(((a.code || a.id).match(/^DEP-(\d+)$/i) || [0, 999999])[1], 10);
+            const numB = parseInt(((b.code || b.id).match(/^DEP-(\d+)$/i) || [0, 999999])[1], 10);
+            if (numA !== numB) return numA - numB;
+            return a.name.localeCompare(b.name, 'th');
+          });
+          departmentsList = validDocs.map(d => d.name);
+          populateDepartmentDropdowns();
+          hasData = true;
+        }
+
+        if (locSnap.status === 'fulfilled' && !locSnap.value.empty) {
+          const locMap = new Map();
+          for (const dSnap of locSnap.value.docs) {
+            const data = dSnap.data() || {};
+            const name = (data.name || dSnap.id || '').trim();
+            const officialCode = (data.code || data.id || dSnap.id || '').trim();
+            if (name) {
+              const key = name.toLowerCase();
+              if (!locMap.has(key)) {
+                locMap.set(key, { id: officialCode || dSnap.id, code: officialCode || dSnap.id, name });
+              }
+            }
+          }
+          const locDocs = Array.from(locMap.values());
+          locDocs.sort((a, b) => {
+            const numA = parseInt(((a.code || a.id || '').match(/^LOC-(\d+)$/i) || [0, 999999])[1], 10);
+            const numB = parseInt(((b.code || b.id || '').match(/^LOC-(\d+)$/i) || [0, 999999])[1], 10);
+            if (numA !== numB) return numA - numB;
+            return (a.name || a.id).localeCompare((b.name || b.id), 'th');
+          });
+          locationsList = locDocs.map(d => (d.name || d.id)).filter(Boolean);
+          populateLocationDropdowns();
+          hasData = true;
+        }
+
+        if (hasData) {
+          saveToLocalStorage();
+          updateStats();
+        }
+
+        isInitialFetchCompleted = true;
+      } catch (err) {
+        console.warn("Direct Firestore fetch notice:", err);
+        if (!isRetry) {
+          setTimeout(() => fetchInitialFirestoreData(true), 2000);
+        }
+      }
+    }
+
     async function setupFirestoreListeners() {
       if (!isFirebaseReady || !db) return;
+      if (isListenersAttached) return;
+      isListenersAttached = true;
+
+      // Trigger parallel direct fetch to ensure data lands immediately
+      fetchInitialFirestoreData();
 
       try {
         onSnapshot(collection(db, "employees"), async (snapshot) => {
@@ -14828,7 +15236,7 @@
       try {
         const app = getApp();
         if (!db) {
-          if (showFeedback) showToast("⚠️ ฐานข้อมูลปลายทาง V.2 ยังไม่พร้อมใช้งาน");
+          if (showFeedback) showToast("⚠️ ฐานข้อมูลปลายทางยังไม่พร้อมใช้งาน");
           return 0;
         }
 
@@ -14849,7 +15257,14 @@
           "activity_logs"
         ];
 
-        if (showFeedback) showToast(`⏳ กำลังตรวจสอบและเชื่อมต่อฐานข้อมูล...`);
+        if (showFeedback) {
+          showToast(`⏳ กำลังตรวจสอบและเชื่อมต่อฐานข้อมูล...`);
+          if (typeof window.updateBackupProgress === 'function') {
+            window.updateBackupProgress(5, "กำลังเริ่มซิงก์ข้อมูล (5%)", `กำลังเชื่อมต่อกับฐานข้อมูล Test (${primarySourceDbId})...`, true, 'bg-success');
+            const progressEl = document.getElementById('backupProgressContainer');
+            if (progressEl) progressEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }
+        }
 
         // Helper to convert Firestore REST Document to JS Object
         const parseFirestoreRestDoc = (fields) => {
@@ -14932,7 +15347,10 @@
         let migrationAppIndex = 1;
         const getDbInstance = (dbId) => {
           try {
-            const fsSettings = { experimentalAutoDetectLongPolling: true };
+            const fsSettings = {
+              experimentalForceLongPolling: true,
+              experimentalAutoDetectLongPolling: true
+            };
             if (!dbId || dbId === "(default)") {
               try {
                 return getFirestore(app);
@@ -14969,7 +15387,20 @@
           const errors = [];
           const src = getDbInstance(sourceDbId);
 
-          for (const colName of collectionsToMigrate) {
+          for (let colIdx = 0; colIdx < collectionsToMigrate.length; colIdx++) {
+            const colName = collectionsToMigrate[colIdx];
+            const currentPct = Math.round(5 + (colIdx / collectionsToMigrate.length) * 80);
+            
+            if (showFeedback && typeof window.updateBackupProgress === 'function') {
+              window.updateBackupProgress(
+                currentPct,
+                `กำลังซิงก์ข้อมูลจาก Test (${currentPct}%)`,
+                `กำลังอ่านตาราง "${colName}" (${colIdx + 1}/${collectionsToMigrate.length})...`,
+                true,
+                'bg-success'
+              );
+            }
+
             let foundDocs = false;
 
             // Strategy A: Direct REST API (Reliable in multi-db contexts)
@@ -14989,6 +15420,15 @@
                   try { await deleteDoc(doc(db, colName, docObj.id)); } catch(e){}
                 }
                 copied++;
+              }
+              if (showFeedback && typeof window.updateBackupProgress === 'function') {
+                window.updateBackupProgress(
+                  currentPct,
+                  `กำลังซิงก์ข้อมูลจาก Test (${currentPct}%)`,
+                  `ตาราง "${colName}" คัดลอกสำเร็จ ${restResult.docs.length} รายการ (${colIdx + 1}/${collectionsToMigrate.length})`,
+                  true,
+                  'bg-success'
+                );
               }
             } else if (restResult.error && !restResult.error.includes("404")) {
               errors.push(`REST [${colName}]: ${restResult.error}`);
@@ -15013,6 +15453,15 @@
                       try { await deleteDoc(doc(db, colName, docSnap.id)); } catch(e){}
                     }
                     copied++;
+                  }
+                  if (showFeedback && typeof window.updateBackupProgress === 'function') {
+                    window.updateBackupProgress(
+                      currentPct,
+                      `กำลังซิงก์ข้อมูลจาก Test (${currentPct}%)`,
+                      `ตาราง "${colName}" คัดลอกสำเร็จ ${snap.docs.length} รายการ (${colIdx + 1}/${collectionsToMigrate.length})`,
+                      true,
+                      'bg-success'
+                    );
                   }
                 }
               } catch (colErr) {
@@ -15050,6 +15499,9 @@
 
           if (userChoice) {
             showToast("⏳ กำลังตรวจสอบฐานข้อมูลสำรองอื่นๆ ในโปรเจกต์...");
+            if (typeof window.updateBackupProgress === 'function') {
+              window.updateBackupProgress(50, "กำลังค้นหาฐานข้อมูลสำรอง...", "กำลังตรวจค้นฐานข้อมูลตัวอื่นในโปรเจกต์...", true, 'bg-warning');
+            }
             const otherCandidates = [
               { id: "ai-studio-floragardennew-077d9b3a-d839-404a-986e-0ab7c5c9be6e", name: "Flora Garden New (077d9b3a)" },
               { id: "ai-studio-1c1eba69-e70f-482c-b553-e77fc7efbd4f", name: "Flora Garden 1c1eba69" },
@@ -15068,6 +15520,27 @@
         }
 
         console.log(`[Migration] Migration execution finished. Total docs copied: ${totalDocsCopied}`);
+
+        if (totalDocsCopied > 0) {
+          if (showFeedback && typeof window.updateBackupProgress === 'function') {
+            window.updateBackupProgress(88, "กำลังจัดระเบียบข้อมูล (88%)", "กำลังจัดระเบียบ Document ID และลบข้อมูลซ้ำซ้อน...", true, 'bg-primary');
+          }
+          await window.cleanAndDeduplicateAllCollections(false);
+
+          if (showFeedback && typeof window.updateBackupProgress === 'function') {
+            window.updateBackupProgress(
+              100,
+              "🎉 ซิงก์ข้อมูลจาก Test เสร็จสมบูรณ์ 100%!",
+              `คัดลอกข้อมูลทั้งหมด ${totalDocsCopied} รายการ ลงฐานข้อมูล V.2 เรียบร้อยแล้ว`,
+              true,
+              'bg-success'
+            );
+          }
+        } else {
+          if (showFeedback && typeof window.updateBackupProgress === 'function') {
+            window.updateBackupProgress(100, "ℹ️ ตรวจสอบเสร็จสิ้น ไม่พบข้อมูลใหม่", "ไม่พบรายการข้อมูลในฐานข้อมูลต้นทาง (0 รายการ)", true, 'bg-secondary');
+          }
+        }
 
         if (showFeedback) {
           if (totalDocsCopied > 0) {
@@ -15108,8 +15581,8 @@
 
       const defaultDb = "ai-studio-floragardentest-b067b23c-205a-446d-8774-e8804286e5e1";
       const customDbInput = prompt(
-        "⚡ ซิงค์ข้อมูลจากฐานข้อมูลเดิมมายัง V.2\n\n" +
-        "กรุณาตรวจสอบหรือระบุ Database ID ต้นทางที่ต้องการดึงข้อมูล:\n(ค่าเริ่มต้นคือ floragardentest)",
+        "⚡ ซิงค์ข้อมูลจากฐานข้อมูล Test มายัง V.2\n\n" +
+        "กรุณาตรวจสอบหรือระบุ Database ID ต้นทางที่ต้องการดึงข้อมูล:\n(ค่าเริ่มต้นคือ Test floragardentest)",
         defaultDb
       );
 
@@ -15146,7 +15619,14 @@
         if (!ok) return;
       }
 
-      showToast("⏳ กำลังเริ่มจัดระเบียบ Document ID และล้างข้อมูลซ้ำซ้อน...");
+      if (showFeedback) {
+        showToast("⏳ กำลังเริ่มจัดระเบียบ Document ID และล้างข้อมูลซ้ำซ้อน...");
+        if (typeof window.updateBackupProgress === 'function') {
+          window.updateBackupProgress(10, "กำลังเริ่มจัดระเบียบข้อมูล (10%)", "กำลังเชื่อมต่อฐานข้อมูลและสแกนหาข้อมูลซ้ำซ้อน...", true, 'bg-primary');
+          const progressEl = document.getElementById('backupProgressContainer');
+          if (progressEl) progressEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }
 
       const report = {};
       let totalFixed = 0;
@@ -15160,8 +15640,13 @@
         { name: "employees", codePrefix: "EMP", nameField: "name" }
       ];
 
-      for (const colInfo of collectionsToCheck) {
+      for (let cIdx = 0; cIdx < collectionsToCheck.length; cIdx++) {
+        const colInfo = collectionsToCheck[cIdx];
         const colName = colInfo.name;
+        if (showFeedback && typeof window.updateBackupProgress === 'function') {
+          const cPct = Math.round(15 + (cIdx / collectionsToCheck.length) * 75);
+          window.updateBackupProgress(cPct, `กำลังจัดระเบียบตาราง ${colName} (${cPct}%)`, `สแกนหาข้อมูลซ้ำซ้อนและจัดระเบียบ Document ID (${cIdx + 1}/${collectionsToCheck.length})...`, true, 'bg-primary');
+        }
         try {
           const qSnap = await getDocs(collection(db, colName));
           if (qSnap.empty) continue;
@@ -15274,6 +15759,9 @@
       const msg = `🎉 จัดระเบียบและล้างข้อมูลซ้ำซ้อนสำเร็จแล้ว!\n\n• รวมเอกสารที่ลบซ้ำซ้อนออก: ${totalDeletedDuplicates} รายการ\n• จัดโครงสร้าง Document ID ตรงตาม code: สำเร็จ\n\nรายละเอียดแยกแต่ละตาราง:\n${reportLines}`;
       
       if (showFeedback) {
+        if (typeof window.updateBackupProgress === 'function') {
+          window.updateBackupProgress(100, "🎉 จัดระเบียบข้อมูลสำเร็จ 100%!", `ลบตัวซ้ำ ${totalDeletedDuplicates} รายการ และจัดระเบียบ Document ID เรียบร้อย`, true, 'bg-success');
+        }
         alert(msg);
         showToast(`🎉 ล้างข้อมูลซ้ำซ้อนสำเร็จ (${totalDeletedDuplicates} รายการ)`);
       }

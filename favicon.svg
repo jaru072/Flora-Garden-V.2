@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2d6a4f" />
+      <stop offset="50%" stop-color="#1b4332" />
+      <stop offset="100%" stop-color="#081c15" />
+    </linearGradient>
+    <linearGradient id="leafGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#95d5b2" />
+      <stop offset="100%" stop-color="#52b788" />
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffeaa7" />
+      <stop offset="50%" stop-color="#fdcb6e" />
+      <stop offset="100%" stop-color="#e17055" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Background rounded squircle container -->
+  <rect width="512" height="512" rx="128" fill="url(#bgGrad)" />
+  <rect width="496" height="496" x="8" y="8" rx="120" fill="none" stroke="#52b788" stroke-width="4" stroke-opacity="0.3" />
+
+  <!-- Botanical Emblem -->
+  <g filter="url(#shadow)" transform="translate(0, -10)">
+    <!-- Central Stem -->
+    <path d="M256 390 C256 310, 256 220, 256 160" stroke="#74c69d" stroke-width="20" stroke-linecap="round" fill="none" />
+
+    <!-- Left Leaf -->
+    <path d="M256 310 C210 300, 140 260, 140 190 C190 190, 240 250, 256 310 Z" fill="url(#leafGrad)" />
+    
+    <!-- Right Leaf -->
+    <path d="M256 260 C302 250, 372 210, 372 140 C322 140, 272 200, 256 260 Z" fill="url(#leafGrad)" />
+
+    <!-- Blooming Golden Flower Top -->
+    <!-- Flower Petals -->
+    <circle cx="256" cy="150" r="28" fill="url(#goldGrad)" />
+    <circle cx="226" cy="130" r="22" fill="url(#goldGrad)" opacity="0.9" />
+    <circle cx="286" cy="130" r="22" fill="url(#goldGrad)" opacity="0.9" />
+    <circle cx="256" cy="104" r="24" fill="url(#goldGrad)" />
+    
+    <!-- Golden Core Sparkle -->
+    <circle cx="256" cy="134" r="14" fill="#ffffff" />
+  </g>
+
+  <!-- Subtle Bottom Brand Accent Ring -->
+  <path d="M160 430 Q256 460 352 430" stroke="#52b788" stroke-width="8" stroke-linecap="round" fill="none" opacity="0.4" />
+</svg>

@@ -2551,7 +2551,7 @@
 
           <!-- 4 Main Action Buttons Grid -->
           <div class="row g-3">
-            <!-- Button 1: Sync from Flora Garden Test (Admin Thamma Srithong Only) -->
+            <!-- Button 1: Sync from Flora Garden V.2 (Admin Thamma Srithong Only) -->
             <div class="col-12">
               <div class="card border-2 border-success rounded-4 p-3.5 bg-white shadow-sm">
                 <div class="d-flex flex-column flex-lg-row align-items-start align-items-lg-center justify-content-between gap-3">
@@ -2566,7 +2566,7 @@
                           <i class="bi bi-shield-lock-fill me-1"></i>Thamma Srithong (jaru072@gmail.com)
                         </span>
                       </div>
-                      <p class="text-muted fs-8 mb-0 mt-1">คัดลอกข้อมูล อุปกรณ์, บุคลากร, ประวัติรายการ จากฐานข้อมูลเดิม (<span class="font-monospace text-dark">floragardentest</span>) มายัง V.2</p>
+                      <p class="text-muted fs-8 mb-0 mt-1">คัดลอกข้อมูล อุปกรณ์, บุคลากร, ประวัติรายการ จากฐานข้อมูล <span class="font-monospace text-dark">floragardentest</span> มายังโปรเจกต์ V.2 นี้</p>
                     </div>
                   </div>
                   <div class="d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center gap-2 w-100 w-lg-auto mt-2 mt-lg-0">
@@ -2728,6 +2728,33 @@
             <div>
               <h6 class="fw-bold text-success mb-1 fs-6">🛡️ จะไม่ลบไฟล์รูปภาพใน Firebase Storage</h6>
               <p class="text-muted fs-8 mb-0">รูปภาพทั้งหมด (รูปอุปกรณ์, รูปพนักงาน) จะยังคงอยู่ใน Firebase Storage ปลอดภัย 100% ไม่ถูกลบ</p>
+            </div>
+          </div>
+
+          <!-- Target Database Identification Card -->
+          <div class="p-3 bg-white border border-danger border-opacity-50 rounded-3 mb-3 shadow-2xs">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <span class="badge bg-danger text-white px-2.5 py-1 fs-8 fw-bold">
+                <i class="bi bi-database-exclamation me-1"></i> เป้าหมายฐานข้อมูลที่จะถูกลบ
+              </span>
+              <span class="badge bg-secondary-subtle text-dark border px-2 py-1 fs-8" id="purgeTargetProjectIdBadge">
+                Project: flora-gaden
+              </span>
+            </div>
+            <div class="mb-2">
+              <div class="fs-8 text-secondary mb-0.5">โปรเจ็กต์ / ระบบ (Project Name):</div>
+              <div class="fw-bold text-danger fs-6 d-flex align-items-center gap-1.5" id="purgeTargetProjectName">
+                <i class="bi bi-folder2-open text-danger"></i> <span>Flora Garden V.2</span>
+              </div>
+            </div>
+            <div class="p-2 bg-light rounded-2 border border-secondary-subtle">
+              <div class="d-flex align-items-center justify-content-between mb-1">
+                <span class="fs-8 text-muted fw-bold">Database ID:</span>
+                <span class="badge bg-danger-subtle text-danger border border-danger-subtle fs-8">Firestore</span>
+              </div>
+              <div class="font-monospace text-dark fw-bold fs-8 text-break select-all user-select-all" id="purgeTargetDbId">
+                ai-studio-floragardenv2-c509b5a5-f4a3-4546-bbae-c5f21564ba7d
+              </div>
             </div>
           </div>
 

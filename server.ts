@@ -435,6 +435,71 @@ app.get('/api/proxy-image', async (req, res) => {
   }
 });
 
+// Endpoint 6: List all files in Firebase Storage with metadata and download URLs
+app.get('/api/list-storage-files', async (req, res) => {
+  try {
+    const bucket = getStorageBucketName();
+    let pageToken: string | undefined = undefined;
+    const allItems: { name: string; size: number; updated: string; downloadUrl: string; contentType?: string }[] = [];
+
+    do {
+      const listUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o` +
+        (pageToken ? `?pageToken=${encodeURIComponent(pageToken)}` : '');
+
+      const listResp = await fetch(listUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (!listResp.ok) break;
+      const listData = (await listResp.json()) as any;
+      if (listData.items && Array.isArray(listData.items)) {
+        for (const item of listData.items) {
+          if (!item.name) continue;
+          const encodedName = encodeURIComponent(item.name);
+          const metaUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedName}`;
+          let remoteSize = 0;
+          let remoteUpdated = '';
+          let downloadToken = '';
+          let contentType = 'image/jpeg';
+
+          try {
+            const metaResp = await fetch(metaUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+            if (metaResp.ok) {
+              const metaJson = (await metaResp.json()) as any;
+              remoteSize = parseInt(metaJson.size || '0', 10);
+              remoteUpdated = metaJson.updated || '';
+              contentType = metaJson.contentType || 'image/jpeg';
+              if (metaJson.downloadTokens) {
+                downloadToken = metaJson.downloadTokens.split(',')[0];
+              }
+            }
+          } catch (e) {}
+
+          const mediaUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedName}?alt=media${
+            downloadToken ? '&token=' + downloadToken : ''
+          }`;
+
+          allItems.push({
+            name: item.name,
+            size: remoteSize,
+            updated: remoteUpdated,
+            downloadUrl: mediaUrl,
+            contentType
+          });
+        }
+      }
+      pageToken = listData.nextPageToken;
+    } while (pageToken);
+
+    res.json({
+      success: true,
+      bucket,
+      total: allItems.length,
+      items: allItems
+    });
+  } catch (err: any) {
+    console.error('List storage files error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ----------------------------------------------------
 // VITE / STATIC FILE SERVING
 // ----------------------------------------------------
